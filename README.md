@@ -11,6 +11,8 @@ Contact <ayanc@ttic.edu> with any questions.
 
 ### Requirements
 
+The inference code is in MATLAB and has no external Caffe dependencies.
+
 1. You can download our trained neural network model weights,
    available as a .caffemodel.h5 file [here][model.h5].
    
@@ -20,12 +22,12 @@ Contact <ayanc@ttic.edu> with any questions.
    class.
    
 3. You will also need to compile the mex function postMAP. With modern
-   versions of Matlab, this can be done by running `mexcuda
+   versions of MATLAB, this can be done by running `mexcuda
    postMAP.cu`. Requires the CUDA toolkit with `nvcc` to be installed.
 
 [model.h5]: http://www.ttic.edu/chakrabarti/mdepth/wts.caffemodel.h5
 
-### Usage for Inference
+### Usage
 
 First, you will need to load the network weights from the model file as:
 
