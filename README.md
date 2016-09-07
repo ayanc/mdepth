@@ -5,7 +5,7 @@ This is a reference implementation of the algorithm described in the paper:
 
 Ayan Chakrabarti, Jingyu Shao, and Gregory Shakhnarovich, ["**Depth from 
 a Single Image by Harmonizing Overcomplete Local Network Predictions**," 
-](https://arxiv.org/abs/1605.07081), NIPS 2016.
+](https://arxiv.org/abs/1605.07081) NIPS 2016.
 
 It is being made available for non-commercial research use only. If you
 find this code useful in your research, please consider citing the paper.
