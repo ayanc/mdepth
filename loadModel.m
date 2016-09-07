@@ -13,6 +13,7 @@ layers = {{ 'conv1', 1, 1}, { 'conv2', 1, 1}, { 'conv3', 1, 1}, { 'conv4', 2, 1}
 % Build struct with all details
 net = struct;
 
+% Get filters and bin centers
 k = squeeze(h5read(mh5,'/data/derFilt/0'));
 net.numk = size(k,3);
 k = k(end:-1:1,end:-1:1,:);
@@ -27,6 +28,7 @@ scales = scales(1:net.nbins:end);
 scales = reshape(scales,[1 1 net.numk]);
 net.k = bsxfun(@times,k,scales);
 
+% Set up local path
 net.layers = {}; rsize = 1;
 for i = 1:length(layers)
   l = layers{i};
@@ -41,35 +43,49 @@ end;
 
 net.rsize = rsize;
 
-%Global tensor
-tmp=h5read(mh5,'/data/gusamp/0');
-fac = size(tmp,1); fac = (fac+1) * 4;
+% Set up VGG-19 path
 
-b_w = ceil(560/fac)+1;
-b_h = ceil(426/fac)+1;
-
-gfip = h5read(mh5,'/data/gfip0/0');
-nUnits = prod(size(gfip))/b_w/b_h;
-
-gfip = reshape(gfip,[b_w b_h nUnits]);
-gfip = permute(gfip,[2 1 3]);
-
-cx = (b_w-1)*fac+1; cx = (cx-561)/2;
-cy = (b_h-1)*fac+1; cy = (cy-427)/2;
-
-net.glob = zeros([427,561,nUnits],'single');
-for i = 1:nUnits
-  us = interp2(gfip(:,:,i),log2(fac));
-  net.glob(:,:,i) = us(1+cy:end-cy,1+cx:end-cx);
+net.vconvs = [2 2 4 4 4];
+net.vlayers = {};
+for i = 1:length(net.vconvs)
+  for j = 1:net.vconvs(i)
+    w = h5read(mh5,sprintf('/data/conv%d_%d/0',i,j));
+    b = h5read(mh5,sprintf('/data/conv%d_%d/1',i,j));
+    net.vlayers{end+1} = {w,b};
+  end;
 end;
 
+w = h5read(mh5,'/data/vgg_fc1/0');
+b = h5read(mh5,'/data/vgg_fc1/1');
+net.vgg_fc1 = {w',b};
+
+w = h5read(mh5,'/data/vgg_fc2/0');
+b = h5read(mh5,'/data/vgg_fc2/1');
+net.vgg_gfp = {w',b};
+
+fac = 32;
+bw = ceil(560/fac)+1; bh = ceil(426/fac)+1;
+nUnits = length(b)/bw/bh;
+net.gsz = [bw bh nUnits fac];
+
 % Move everything to gpu
+if 1 > 2
 for i = 1:length(net.layers)
   net.layers{i}{1} = gpuArray(single(net.layers{i}{1}));
   net.layers{i}{2} = gpuArray(single(net.layers{i}{2}));
 end;
-net.glob = gpuArray(single(net.glob));
 
+for i = 1:length(net.vlayers)
+  net.vlayers{i}{1} = gpuArray(single(net.vlayers{i}{1}));
+  net.vlayers{i}{2} = gpuArray(single(net.vlayers{i}{2}));
+end;
+  
+net.vgg_fc1{1} = gpuArray(single(net.vgg_fc1{1}));
+net.vgg_fc1{2} = gpuArray(single(net.vgg_fc1{2}));
+
+net.vgg_gfp{1} = gpuArray(single(net.vgg_gfp{1}));
+net.vgg_gfp{2} = gpuArray(single(net.vgg_gfp{2}));
+end;
 %%%% Precompute things for consensus
 
 %%% Choose regularizer

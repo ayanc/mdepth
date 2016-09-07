@@ -1,0 +1,805 @@
+##### Training data
+## The python data layer generates image and depth blobs, which we
+## then feed to a series of standard caffe layers to compute derivatives
+## and generate the ground truth targets for our prediction.
+    
+layer {
+    name: "data"
+    top: "rgb" top: "z0" top: "m0" top: "vgg_inp"
+    type: "Python"
+    python_param {
+	module: "NYUdata"
+	layer: "data"
+	param_str: "train.txt:1:1:49:0"
+    }
+}
+
+layer {
+    name: "invz"
+    top: "z0" bottom: "z0"
+    type: "Power"
+    power_param { shift: 0.0000000001 power: -1 }
+}
+
+## Mask Path:
+
+# m1 = conv2(m0,ones(fsz,fsz),'valid') == fsz^2
+layer {
+    name: "m1" bottom: "m0" top: "m1"
+    type: "Convolution"
+    param { lr_mult: 0 } param { lr_mult: 0 }
+    convolution_param {
+	kernel_size:  49 stride: 8
+	num_output: 1
+	weight_filler { type: "constant" value: 1 }
+	bias_filler { type: "constant" value: -2400 }
+    }
+}
+layer {
+    name: "m1b" bottom: "m1" top: "m1"
+    type: "ReLU"
+}
+
+# msk = repmat(m1,[1 1 nFilt])
+layer {
+    name: "msk0" bottom: "m1" top: "msk0"
+    type: "Convolution"
+    param { lr_mult: 0 }
+    convolution_param {
+	num_output: 64
+	kernel_size: 1
+	bias_term: false
+	weight_filler { type: "constant" value: 1 }
+    }
+}
+
+# Reshape => num = bsize * nFilt
+layer {
+    name: "msk" bottom: "msk0" top: "msk"
+    type: "Reshape"
+    reshape_param {
+	shape { dim: -1 dim: 1 dim: 0 dim: 0 }
+    }
+}
+
+## Coeff distributions
+
+# z1(:,:,i) = conv2(z0,derFilt(:,:,i),'valid')
+layer {
+    name: "derFilt" # Will be blob name
+    bottom: "z0" top: "z1"
+    type: "Convolution"
+    param { lr_mult: 0 }
+    convolution_param {
+	num_output: 64
+	kernel_size:  49 stride: 8
+	bias_term: false
+    }
+}
+
+# z2(:,:,i,j) = z1(:,:,i) - fBins(i,j)
+layer {
+    name: "fBins" # Will be blob name
+    bottom: "z1" top: "z2"
+    type: "Convolution"
+    param { lr_mult: 0 } param { lr_mult: 0 }
+    convolution_param {
+	num_output: 4096
+	kernel_size: 1
+	group: 64
+    }
+}
+layer {
+    name: "z2r" bottom: "z2" top: "zd"
+    type: "Reshape"
+    reshape_param {
+	shape { dim: -1 dim: 64 dim: 0 dim: 0 }
+    }
+}
+
+# z2c = -z2^2/2
+layer {
+    name: "z2b"
+    bottom: "zd" top: "zd"
+    type: "Power"
+    power_param { power: 2 }
+}
+layer {
+    name: "z2c"
+    bottom: "zd" top: "zd"
+    type: "Power"
+    power_param { power: 1 scale: -0.5 }
+}
+
+# zd = exp(z2c) / \sum exp(z2c)
+layer {
+    name: "zd" bottom: "zd" top: "zd"
+    type: "Softmax"
+}
+
+
+##### The actual prediction network starts here.
+
+# Scene Path
+
+layer {
+  bottom: "vgg_inp"
+  top: "conv1_1"
+  name: "conv1_1"
+  type: "Convolution"
+  param { lr_mult: 0.1 } param { lr_mult: 0.2 }  
+  convolution_param {
+    num_output: 64
+    pad: 1
+    kernel_size: 3
+  }
+}
+layer {
+  bottom: "conv1_1"
+  top: "conv1_1"
+  name: "relu1_1"
+  type: "ReLU"
+}
+layer {
+  bottom: "conv1_1"
+  top: "conv1_2"
+  name: "conv1_2"
+  type: "Convolution"
+  param { lr_mult: 0.1 } param { lr_mult: 0.2 }  
+  convolution_param {
+    num_output: 64
+    pad: 1
+    kernel_size: 3
+  }
+}
+layer {
+  bottom: "conv1_2"
+  top: "conv1_2"
+  name: "relu1_2"
+  type: "ReLU"
+}
+layer {
+  bottom: "conv1_2"
+  top: "pool1"
+  name: "pool1"
+  type: "Pooling"
+  pooling_param {
+    pool: MAX
+    kernel_size: 2
+    stride: 2
+  }
+}
+layer {
+  bottom: "pool1"
+  top: "conv2_1"
+  name: "conv2_1"
+  type: "Convolution"
+  param { lr_mult: 0.1 } param { lr_mult: 0.2 }  
+  convolution_param {
+    num_output: 128
+    pad: 1
+    kernel_size: 3
+  }
+}
+layer {
+  bottom: "conv2_1"
+  top: "conv2_1"
+  name: "relu2_1"
+  type: "ReLU"
+}
+layer {
+  bottom: "conv2_1"
+  top: "conv2_2"
+  name: "conv2_2"
+  type: "Convolution"
+  param { lr_mult: 0.1 } param { lr_mult: 0.2 }  
+  convolution_param {
+    num_output: 128
+    pad: 1
+    kernel_size: 3
+  }
+}
+layer {
+  bottom: "conv2_2"
+  top: "conv2_2"
+  name: "relu2_2"
+  type: "ReLU"
+}
+layer {
+  bottom: "conv2_2"
+  top: "pool2"
+  name: "pool2"
+  type: "Pooling"
+  pooling_param {
+    pool: MAX
+    kernel_size: 2
+    stride: 2
+  }
+}
+layer {
+  bottom: "pool2"
+  top: "conv3_1"
+  name: "conv3_1"
+  type: "Convolution"
+  param { lr_mult: 0.1 } param { lr_mult: 0.2 }  
+  convolution_param {
+    num_output: 256
+    pad: 1
+    kernel_size: 3
+  }
+}
+layer {
+  bottom: "conv3_1"
+  top: "conv3_1"
+  name: "relu3_1"
+  type: "ReLU"
+}
+layer {
+  bottom: "conv3_1"
+  top: "conv3_2"
+  name: "conv3_2"
+  type: "Convolution"
+  param { lr_mult: 0.1 } param { lr_mult: 0.2 }  
+  convolution_param {
+    num_output: 256
+    pad: 1
+    kernel_size: 3
+  }
+}
+layer {
+  bottom: "conv3_2"
+  top: "conv3_2"
+  name: "relu3_2"
+  type: "ReLU"
+}
+layer {
+  bottom: "conv3_2"
+  top: "conv3_3"
+  name: "conv3_3"
+  type: "Convolution"
+  param { lr_mult: 0.1 } param { lr_mult: 0.2 }  
+  convolution_param {
+    num_output: 256
+    pad: 1
+    kernel_size: 3
+  }
+}
+layer {
+  bottom: "conv3_3"
+  top: "conv3_3"
+  name: "relu3_3"
+  type: "ReLU"
+}
+layer {
+  bottom: "conv3_3"
+  top: "conv3_4"
+  name: "conv3_4"
+  type: "Convolution"
+  param { lr_mult: 0.1 } param { lr_mult: 0.2 }  
+  convolution_param {
+    num_output: 256
+    pad: 1
+    kernel_size: 3
+  }
+}
+layer {
+  bottom: "conv3_4"
+  top: "conv3_4"
+  name: "relu3_4"
+  type: "ReLU"
+}
+layer {
+  bottom: "conv3_4"
+  top: "pool3"
+  name: "pool3"
+  type: "Pooling"
+  pooling_param {
+    pool: MAX
+    kernel_size: 2
+    stride: 2
+  }
+}
+layer {
+  bottom: "pool3"
+  top: "conv4_1"
+  name: "conv4_1"
+  type: "Convolution"
+  param { lr_mult: 0.1 } param { lr_mult: 0.2 }  
+  convolution_param {
+    num_output: 512
+    pad: 1
+    kernel_size: 3
+  }
+}
+layer {
+  bottom: "conv4_1"
+  top: "conv4_1"
+  name: "relu4_1"
+  type: "ReLU"
+}
+layer {
+  bottom: "conv4_1"
+  top: "conv4_2"
+  name: "conv4_2"
+  type: "Convolution"
+  param { lr_mult: 0.1 } param { lr_mult: 0.2 }  
+  convolution_param {
+    num_output: 512
+    pad: 1
+    kernel_size: 3
+  }
+}
+layer {
+  bottom: "conv4_2"
+  top: "conv4_2"
+  name: "relu4_2"
+  type: "ReLU"
+}
+layer {
+  bottom: "conv4_2"
+  top: "conv4_3"
+  name: "conv4_3"
+  type: "Convolution"
+  param { lr_mult: 0.1 } param { lr_mult: 0.2 }  
+  convolution_param {
+    num_output: 512
+    pad: 1
+    kernel_size: 3
+  }
+}
+layer {
+  bottom: "conv4_3"
+  top: "conv4_3"
+  name: "relu4_3"
+  type: "ReLU"
+}
+layer {
+  bottom: "conv4_3"
+  top: "conv4_4"
+  name: "conv4_4"
+  type: "Convolution"
+  param { lr_mult: 0.1 } param { lr_mult: 0.2 }  
+  convolution_param {
+    num_output: 512
+    pad: 1
+    kernel_size: 3
+  }
+}
+layer {
+  bottom: "conv4_4"
+  top: "conv4_4"
+  name: "relu4_4"
+  type: "ReLU"
+}
+layer {
+  bottom: "conv4_4"
+  top: "pool4"
+  name: "pool4"
+  type: "Pooling"
+  pooling_param {
+    pool: MAX
+    kernel_size: 2
+    stride: 2
+  }
+}
+layer {
+  bottom: "pool4"
+  top: "conv5_1"
+  name: "conv5_1"
+  type: "Convolution"
+  param { lr_mult: 0.1 } param { lr_mult: 0.2 }  
+  convolution_param {
+    num_output: 512
+    pad: 1
+    kernel_size: 3
+  }
+}
+layer {
+  bottom: "conv5_1"
+  top: "conv5_1"
+  name: "relu5_1"
+  type: "ReLU"
+}
+layer {
+  bottom: "conv5_1"
+  top: "conv5_2"
+  name: "conv5_2"
+  type: "Convolution"
+  param { lr_mult: 0.1 } param { lr_mult: 0.2 }  
+  convolution_param {
+    num_output: 512
+    pad: 1
+    kernel_size: 3
+  }
+}
+layer {
+  bottom: "conv5_2"
+  top: "conv5_2"
+  name: "relu5_2"
+  type: "ReLU"
+}
+layer {
+  bottom: "conv5_2"
+  top: "conv5_3"
+  name: "conv5_3"
+  type: "Convolution"
+  param { lr_mult: 0.1 } param { lr_mult: 0.2 }  
+  convolution_param {
+    num_output: 512
+    pad: 1
+    kernel_size: 3
+  }
+}
+layer {
+  bottom: "conv5_3"
+  top: "conv5_3"
+  name: "relu5_3"
+  type: "ReLU"
+}
+layer {
+  bottom: "conv5_3"
+  top: "conv5_4"
+  name: "conv5_4"
+  type: "Convolution"
+  param { lr_mult: 0.1 } param { lr_mult: 0.2 }  
+  convolution_param {
+    num_output: 512
+    pad: 1
+    kernel_size: 3
+  }
+}
+layer {
+  bottom: "conv5_4"
+  top: "conv5_4"
+  name: "relu5_4"
+  type: "ReLU"
+}
+layer {
+  bottom: "conv5_4"
+  top: "pool5"
+  name: "pool5"
+  type: "Pooling"
+  pooling_param {
+    pool: MAX
+    kernel_size: 2
+    stride: 2
+  }
+}
+
+layer {
+  bottom: "pool5"
+  top: "pool5b"
+  name: "pool5b"
+  type: "Pooling"
+  pooling_param {
+    pool: AVE
+    kernel_size: 2
+    stride: 2
+  }
+}
+
+    
+# Our own FC
+layer {
+    name: "vgg_fc1"
+    bottom: "pool5b"
+    top: "vgg_fc1"
+    type: "InnerProduct"
+
+    param { lr_mult: 1 }
+    param { lr_mult: 2 }
+
+    inner_product_param {
+	num_output: 4096
+	weight_filler { type: "gaussian" std: 0.01 }
+        bias_filler { type: "constant" value: 0}
+    }
+}
+layer {
+    name: "vgg_fc1R"
+    bottom: "vgg_fc1"
+    top: "vgg_fc1"
+    type: "ReLU"
+}
+layer {
+    name: "vgg_fc1do"
+    bottom: "vgg_fc1"
+    top: "vgg_fc1"
+    type: "Dropout"
+    dropout_param { dropout_ratio: 0.5 }
+}
+
+    
+# To image / 16 sized blob
+layer {
+    name: "vgg_fc2"
+    bottom: "vgg_fc1"
+    top: "vgg_fc2"
+    type: "InnerProduct"
+
+    param { lr_mult: 1 }
+    param { lr_mult: 2 }
+
+    inner_product_param {
+	num_output: 18240 # 64 * 15(H) * 19(W)
+        weight_filler { type: "gaussian" std: 0.01 }
+        bias_filler { type: "constant" value: 0}
+    }
+}
+
+layer {
+    name: "gfip1"
+    bottom: "vgg_fc2"
+    top: "gfip1"
+    type: "Reshape"
+    reshape_param {
+        shape { dim: -1 dim: 1 dim: 15 dim: 19 }
+    }
+}
+
+
+layer {
+    name: "gusampx4"
+    bottom: "gfip1"
+    top: "glfeat0"
+    type: "Deconvolution"
+    param { lr_mult: 0 }
+    convolution_param {
+	num_output: 1
+	bias_term: false
+	pad_w: 4
+	pad_h: 5
+	stride: 4
+	kernel_size: 7
+	
+	#output_dim = stride_data[i] * (input_dim - 1)
+	#    + kernel_extent - 2 * pad_data[i];
+    }
+}
+
+layer {
+    name: "glfeat"
+    bottom: "glfeat0"
+    top: "glfeat"
+    type: "Reshape"
+    reshape_param {
+	shape { dim: -1 dim: 64 dim: 0 dim: 0 }
+    }
+}
+
+# Local Path
+
+layer {
+  name: "conv1"
+  top: "conv1"
+  bottom: "rgb"
+  type: "Convolution"
+  param { lr_mult: 1 } param { lr_mult: 2 }  
+  convolution_param {
+     weight_filler { type: "xavier" }
+     bias_filler { type: "constant" }
+     kernel_size: 3
+     num_output: 128
+  }
+}
+
+layer {
+  name: "relu1"
+  bottom: "conv1"
+  top: "conv1"
+  type: "ReLU"
+}
+
+layer {
+  name: "conv2"
+  top: "conv2"
+  bottom: "conv1"
+  type: "Convolution"
+  param { lr_mult: 1 } param { lr_mult: 2 }  
+  convolution_param {
+     weight_filler { type: "xavier" }
+     bias_filler { type: "constant" }
+     kernel_size: 3 pad: 1
+     num_output: 128
+  }
+}
+
+layer {
+  name: "relu2"
+  bottom: "conv2"
+  top: "conv2"
+  type: "ReLU"
+}
+
+layer {
+  name: "conv3"
+  top: "conv3"
+  bottom: "conv2"
+  type: "Convolution"
+  param { lr_mult: 1 } param { lr_mult: 2 }  
+  convolution_param {
+     weight_filler { type: "xavier" }
+     bias_filler { type: "constant" }
+     kernel_size: 5 stride: 2 pad: 2
+     num_output: 192
+  }
+}
+
+layer {
+  name: "relu3"
+  bottom: "conv3"
+  top: "conv3"
+  type: "ReLU"
+}
+
+layer {
+  name: "conv4"
+  top: "conv4"
+  bottom: "conv3"
+  type: "Convolution"
+  param { lr_mult: 1 } param { lr_mult: 2 }  
+  convolution_param {
+     weight_filler { type: "xavier" }
+     bias_filler { type: "constant" }
+     kernel_size: 5 stride: 2 pad: 2
+     num_output: 256
+  }
+}
+
+layer {
+  name: "relu4"
+  bottom: "conv4"
+  top: "conv4"
+  type: "ReLU"
+}
+
+layer {
+  name: "conv5"
+  top: "conv5"
+  bottom: "conv4"
+  type: "Convolution"
+  param { lr_mult: 1 } param { lr_mult: 2 }  
+  convolution_param {
+     weight_filler { type: "xavier" }
+     bias_filler { type: "constant" }
+     kernel_size: 5 stride: 2 pad: 2
+     num_output: 512
+  }
+}
+
+layer {
+  name: "relu5"
+  bottom: "conv5"
+  top: "conv5"
+  type: "ReLU"
+}
+
+layer {
+  name: "conv6"
+  top: "conv6"
+  bottom: "conv5"
+  type: "Convolution"
+  param { lr_mult: 1 } param { lr_mult: 2 }  
+  convolution_param {
+     weight_filler { type: "xavier" }
+     bias_filler { type: "constant" }
+     kernel_size: 5 pad: 2
+     num_output: 1024
+  }
+}
+
+layer {
+  name: "relu6"
+  bottom: "conv6"
+  top: "conv6"
+  type: "ReLU"
+}
+
+layer {
+  name: "conv7"
+  top: "conv7"
+  bottom: "conv6"
+  type: "Convolution"
+  param { lr_mult: 1 } param { lr_mult: 2 }  
+  convolution_param {
+     weight_filler { type: "xavier" }
+     bias_filler { type: "constant" }
+     kernel_size: 3 dilation: 2 pad: 2
+     num_output: 1024
+  }
+}
+
+layer {
+  name: "relu7"
+  bottom: "conv7"
+  top: "conv7"
+  type: "ReLU"
+}
+
+layer {
+    name: "c7plus"
+    bottom: "conv7"
+    bottom: "glfeat"
+    top: "c7plus"
+    type: "Concat"
+}
+
+
+layer {
+  name: "conv8"
+  top: "conv8"
+  bottom: "c7plus"
+  type: "Convolution"
+  param { lr_mult: 1 }
+  param { lr_mult: 2 }
+  convolution_param {
+     weight_filler { type: "xavier" }
+     bias_filler { type: "constant" }
+     kernel_size: 1 dilation: 2
+     num_output: 512
+  }
+}
+
+layer {
+  name: "relu8"
+  bottom: "conv8"
+  top: "conv8"
+  type: "ReLU"
+}
+
+layer {
+  name: "conv9"
+  top: "conv9"
+  bottom: "conv8"
+  type: "Convolution"
+  param { lr_mult: 1 }
+  param { lr_mult: 2 }
+  convolution_param {
+     weight_filler { type: "xavier" }
+     bias_filler { type: "constant" }
+     kernel_size: 1 dilation: 2
+     num_output: 256
+  }
+}
+
+layer {
+  name: "relu9"
+  bottom: "conv9"
+  top: "conv9"
+  type: "ReLU"
+}
+
+layer {
+  name: "pred0"
+  top: "pred0"
+  bottom: "conv9"
+  type: "Convolution"
+  param { lr_mult: 1 }
+  param { lr_mult: 2 }
+  convolution_param {
+     weight_filler { type: "xavier" }
+     bias_filler { type: "constant" }
+     kernel_size: 1 dilation: 2
+     num_output: 4096
+  }
+}
+
+## Receptive field = 97
+
+layer {
+    name: "predz2r" bottom: "pred0" top: "pred"
+    type: "Reshape"
+    reshape_param {
+        shape { dim: -1 dim: 64 dim: 0 dim: 0 }
+    }
+}
+
+layer {
+  name: "smkld"
+  type: "SoftmaxKLDLoss"
+  bottom: "pred"
+  bottom: "zd"
+  bottom: "msk"
+  top: "loss"
+
+}
