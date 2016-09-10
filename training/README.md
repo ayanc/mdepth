@@ -36,7 +36,7 @@ set in the official train-test split.
 
 For each scene, generate a pair of PNG files to store the RGB and depth data
 respectively. These should be named with a common base name and different
-suffixes: '_i.png`, for the 8-bit 3 channel PNG corresponding to the
+suffixes: `_i.png`, for the 8-bit 3 channel PNG corresponding to the
 RGB image, and `_f.png` for a 16-bit 1 channel PNG image corresponding
 to depth---the depth png should be scaled so that the max UINT16 value
 (2^16-1) corresponds to a depth of 10 meters.
