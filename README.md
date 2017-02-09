@@ -37,7 +37,7 @@ and has no external Caffe dependencies.
 First, you will need to load the network weights from the model file
 as:
 
-```>>> net = load('/path/to/mdepth.caffemodel.h5');```
+```>>> net = loadModel('/path/to/mdepth.caffemodel.h5');```
 
 Then given a floating-point RGB image `img`, normalized to `[0,1]`,
 estimate the corresponding depth map as:
